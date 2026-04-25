@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="CollatzMillion/CollatzMillion.vcxproj" Id="1bbb5f41-5374-43bf-8cae-68354a526889" />
+</Solution>
