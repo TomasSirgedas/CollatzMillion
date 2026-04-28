@@ -93,7 +93,7 @@ vector<uint8_t> createDividesTable( int numDivides )
 class LookaheadTable
 {
 public:
-   static constexpr int NUM_DIVIDES = 12;
+   static constexpr int NUM_DIVIDES = 19;
 public:
    LookaheadTable()
    {
@@ -101,12 +101,19 @@ public:
       cout << "m_table is " << m_table.size() / (1 << 20) << "MB" << endl;
    }
 
-   int leastMul2s( const cpp_int& num ) // returns fewest number of mul2s to achieve `NUM_DIVIDES` divides
+   //int leastMul2s( const cpp_int& num ) // returns fewest number of mul2s to achieve `NUM_DIVIDES` divides
+   //{
+   //   static uint64_t MOD_POW3 = 6 * powInt( 3, NUM_DIVIDES );
+   //   uint64_t x = static_cast<uint64_t>(num % MOD_POW3);
+   //   return m_table[x >> 1];
+   //}
+   int leastMul2s( uint64_t num ) // returns fewest number of mul2s to achieve `NUM_DIVIDES` divides
    {
       static uint64_t MOD_POW3 = 6 * powInt( 3, NUM_DIVIDES );
-      uint64_t x = static_cast<uint64_t>(num % MOD_POW3);
+      uint64_t x = num % MOD_POW3;
       return m_table[x >> 1];
    }
+
 
 private:
    vector<uint8_t> m_table;
@@ -131,6 +138,67 @@ LookaheadTable g_lookahead;
 //   return 0;
 //}
 
+
+class BigInt3
+{
+public:
+   static constexpr uint64_t BASE = 8105110306037952534ull; // 2*3^39   
+   static constexpr int N = 6;
+public:
+   BigInt3()
+   {
+   }
+   BigInt3( cpp_int x )
+   {
+      for ( int i = 0; i < N; i++ )
+      {
+         m[i] = static_cast<uint64_t>( x % BASE );
+         x /= BASE;
+      }
+      if ( x != 0 )
+         throw runtime_error( "BigInt::BigInt(): number too big" );
+   }
+   cpp_int value() const
+   {
+      cpp_int ret = 0;
+      for ( int i = N - 1; i >= 0; i-- )
+         ret = ret * BASE + m[i];
+      return ret;
+   }
+   void doMul2()
+   {
+      for ( int i = N - 1; i >= 0; i-- )
+      {
+         m[i] <<= 1;
+         uint64_t carry = m[i] >= BASE ? 1 : 0;
+         if ( carry ) { m[i] -= BASE; m[i + 1]++; }
+      }
+   }
+   void doDiv3Mul2()
+   {
+      int64_t remainder = 0;
+      for ( int i = N - 1; i >= 0; i-- )
+      {
+         lldiv_t d = lldiv( m[i], 3 );
+         m[i] = d.quot + remainder;
+         remainder = d.rem * (BASE / 3);
+      }
+      doMul2();
+   }
+   bool canDiv() const
+   {
+      auto rem = m[0] % 18;
+      return rem == 4 || rem == 16;
+   }
+   uint64_t leastSignificantBlock() const
+   {
+      return m[0];
+   }
+
+public:
+   array<uint64_t, N> m;
+};
+
 class SegmentedInt
 {
 public:
@@ -141,54 +209,62 @@ public:
       m_pow3 = 200;
       cpp_int M = pow( cpp_int( 3 ), m_pow3 ) * pow( cpp_int( 2 ), m_pow2 );
       m_x1 = std::make_shared<cpp_int>( x / M );
-      m_x0 = x % M;
+      m_x0 = BigInt3( x % M );
+      //m_x0c = x % M;
+      //assert( m_x0.value() == m_x0c );
    }
-   SegmentedInt mul() const
+   void doMul2()
    {
       SegmentedInt ret;
-      ret.m_x1 = m_x1;
-      ret.m_pow3 = m_pow3;
-      ret.m_pow2 = m_pow2 + 1;
-      ret.m_x0 = m_x0 * 2;
-      return ret;
+      m_pow2 = m_pow2 + 1;
+      //assert( m_x0.value() == m_x0c );
+      m_x0.doMul2();
+      //m_x0c *= 2;
+      //assert( m_x0.value() == m_x0c );
    }
-   SegmentedInt div() const
+   void doDiv3Mul2()
    {
       SegmentedInt ret;
-      ret.m_pow3 = m_pow3 - 1;
-      ret.m_pow2 = m_pow2 + 1;
-      ret.m_x0 = m_x0 / 3 * 2;
-      ret.m_x1 = m_x1;      
-      if ( ret.m_pow3 < 20 )
-         ret = SegmentedInt( ret.value() );
-      return ret;
+      m_pow3--;
+      m_pow2++;
+      //assert( m_x0.value() == m_x0c );
+      m_x0.doDiv3Mul2();
+      //m_x0c = m_x0c / 3 * 2;
+      //assert( m_x0.value() == m_x0c );
+      if ( m_pow3 < 20 )
+         *this = SegmentedInt( value() );
    }
    bool canDiv() const
    {
       if ( m_pow2 < 1 || m_pow3 < 2 )
          throw std::runtime_error( "SegmentedInt: m_x1 not divisible by 18" );
-      return m_x0 % 18 == 4 || m_x0 % 18 == 16;
+      return m_x0.canDiv();
+      //return m_x0c % 18 == 4 || m_x0c % 18 == 16;
    }
    cpp_int value() const
    {
-      return *m_x1 * (pow( cpp_int( 3 ), m_pow3 ) * pow( cpp_int( 2 ), m_pow2 )) + m_x0;
+      return *m_x1 * (pow( cpp_int( 3 ), m_pow3 ) * pow( cpp_int( 2 ), m_pow2 )) + m_x0.value();
+      //return *m_x1 * (pow( cpp_int( 3 ), m_pow3 ) * pow( cpp_int( 2 ), m_pow2 )) + m_x0c;
    }
-   const cpp_int& x0() const { return m_x0; }
+   uint64_t leastSignificantBlock() const { return m_x0.leastSignificantBlock(); }
+   //uint64_t leastSignificantBlock() const { return static_cast<uint64_t>( m_x0c % BigInt3::BASE ); }
 
 private:
    // actual value = m_x1 * 2^m_pow2 * 3^m_pow3 + m_x0
    shared_ptr<cpp_int> m_x1;
    int m_pow2 = 0;
    int m_pow3 = 0;
-   cpp_int m_x0;
+   //cpp_int m_x0c;
+   BigInt3 m_x0;
 };
+
 
 class MyInt
 {
 public:
    MyInt( const SegmentedInt& x, double log2_x ) : x( x ), m_log2_x( log2_x )
    {
-      m_future_mul2s = g_lookahead.leastMul2s( x.x0() );
+      m_future_mul2s = g_lookahead.leastMul2s( x.leastSignificantBlock() );
    }
    static MyInt from( const cpp_int& x )
    {
@@ -202,14 +278,20 @@ public:
    {
       return relativeSize() < rhs.relativeSize();
    }
-   MyInt mul() const
+   MyInt& doMul2()
    {
-      return MyInt( x.mul(), m_log2_x + 1 );
+      x.doMul2();
+      m_log2_x += 1;
+      m_future_mul2s = g_lookahead.leastMul2s( x.leastSignificantBlock() );
+      return *this;
    }
-   MyInt div() const
+   MyInt& doDiv3Mul2()
    {
       constexpr double LOG2_2_3 = -0.5849625007211561814; // log2( 2./3 )
-      return MyInt( x.div(), m_log2_x + LOG2_2_3 );
+      x.doDiv3Mul2();
+      m_log2_x += LOG2_2_3;
+      m_future_mul2s = g_lookahead.leastMul2s( x.leastSignificantBlock() );
+      return *this;
    }
    bool canDiv() const
    {
@@ -245,7 +327,8 @@ int main()
    typedef MyInt T;
 
    //constexpr int64_t MAX_Q_SIZE = 5'000;
-   constexpr int64_t MAX_Q_SIZE = 50; // 5 -> Time = 13.7988  50 -> 106.689
+   //constexpr int64_t MAX_Q_SIZE = 50; // 5 -> Time = 13.7988  50 -> 106.689
+   constexpr int64_t MAX_Q_SIZE = 100'000;
    priority_queue<T> q0; // queue to consume
    priority_queue<T> q1; // next queue
    priority_queue<T> q2; // next next queue
@@ -264,9 +347,9 @@ int main()
       {
          const T& x = q0.top();
 
-         push( q1, x.mul() );
          if ( x.canDiv() )
-            push( q2, x.div() );
+            push( q2, MyInt( x ).doDiv3Mul2() );
+         push( q1, MyInt( x ).doMul2() );
 
          q0.pop();
       }
